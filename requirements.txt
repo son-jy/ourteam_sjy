@@ -1,1 +1,3 @@
 sentence_transformers
+pandas
+streamlit
