@@ -51,7 +51,7 @@ def get_response(user_input):
 st.title("통행 약자 인도 보행 안전 어시스턴트 서비스")
 
 # 이미지 표시
-st.image("car.png", caption="Welcome to the Restaurant Chatbot", use_column_width=True)
+st.image("car.png", caption="Traffic Assistant Services", use_column_width=True)
 
 st.write("저희가 만든 포트폴리오에 관한 질문을 입력해보세요. 예: 주제가 무엇인가요?")
 
