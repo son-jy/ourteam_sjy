@@ -25,12 +25,26 @@ with st.container():
         if "processed_video" in st.session_state:
             st.video(st.session_state["processed_video"])
         else:
-            st.write("여기에 사물 검출 결과가 표시됩니다.")
+            # st.write("여기에 사물 검출 결과가 표시됩니다.")
+            result_placeholder.markdown(
+                """
+                <div style='width:100%; height:620px; background-color:#d3d3d3; display:flex; align-items:center; justify-content:center; border-radius:5px;'>
+                    <p style='color:#888;'>여기에 사물 검출 결과가 표시됩니다.</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 # 사물 검출 버튼 추가
 if st.button("사물 검출 실행"):
     if uploaded_file is not None:
         st.session_state["processed_video"] = uploaded_file
+        result_placeholder.markdown(
+            "<div style='width:100%; height:500px; background-color:#d3d3d3; display:flex; align-items:center; justify-content:center; border-radius:5px;'>"
+            "<p style='color:#888;'>사물 검출 결과 영상이 여기에 표시됩니다.</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
         st.success("사물 검출이 완료되어 오른쪽에 표시됩니다.")
     else:
         st.warning("사물 검출을 실행하려면 비디오 파일을 업로드하세요.")
