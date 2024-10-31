@@ -22,6 +22,8 @@ with st.container():
 
     with col2:
         st.header("사물 검출 결과 영상")
+        # 사물 검출 결과가 나타날 자리 확보 및 고정 높이 회색 박스 스타일 추가
+        result_placeholder = st.empty()
         if "processed_video" in st.session_state:
             st.video(st.session_state["processed_video"])
         else:
