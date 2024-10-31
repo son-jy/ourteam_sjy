@@ -9,7 +9,7 @@ import os
 st.set_page_config(layout="wide")
 
 # 제목
-st.title("비디오 사물 검출 및 재인코딩 앱")
+st.title("통행 약자 인도 보행 안전 어시스턴트 서비스 및 재인코딩 앱")
 
 # 모델 파일 업로드
 model_file = st.file_uploader("모델 파일을 업로드하세요", type=["pt"])
