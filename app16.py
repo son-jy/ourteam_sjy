@@ -4,14 +4,14 @@ import streamlit as st
 st.set_page_config(layout="wide")
 
 # 제목 설정
-st.title("프로젝트 제목 : 비디오 사물 검출 앱")
+st.title("비디오 사물 검출 앱")
+
+# 파일 업로드 버튼을 상단으로 이동
+uploaded_file = st.file_uploader("비디오 파일을 업로드하세요", type=["mp4", "mov", "avi"])
 
 # 전체 레이아웃을 컨테이너로 감싸기
 with st.container():
     col1, col2 = st.columns(2)  # 열을 균등하게 분배하여 넓게 표시
-
-    # 파일 업로드
-    uploaded_file = st.file_uploader("비디오 파일을 업로드하세요", type=["mp4", "mov", "avi"])
 
     with col1:
         st.header("원본 영상")
