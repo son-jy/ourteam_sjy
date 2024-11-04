@@ -15,9 +15,6 @@ from subprocess import check_call, PIPE
 import json
 from pathlib import Path
 
-# 현재 스크립트의 위치를 기준으로 상위 경로를 추가
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 # Get or set the session ID using Streamlit's session state
 if "user_session" not in st.session_state:
     st.session_state.user_session = os.urandom(16).hex()
