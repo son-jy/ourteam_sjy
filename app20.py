@@ -4,30 +4,24 @@ import logging
 import streamlit as st
 import streamlit.components.v1 as components
 
-from streamlit.runtime.scriptrunner.script_run_context import get_script_run_ctx
-
 from app.utils import dir_func
 from app.ffmpeg_func import video_preprocessing, combine_video_audio
 from app.subtitle_func import json2sub
 from app.audio_func import json2audio
 
 from requests import get
-
 import shlex
 from subprocess import check_call, PIPE
 import json
 from pathlib import Path
 
-def get_session_id() -> str:
-    ctx = get_script_run_ctx()
-    if ctx is None:
-        raise Exception("Failed to get the thread context")
-    return ctx.session_id
+# Get or set the session ID using Streamlit's session state
+if "user_session" not in st.session_state:
+    st.session_state.user_session = os.urandom(16).hex()
 
-
+user_session = st.session_state.user_session
 TARGET_FPS = 15
 EXTERNAL_IP = get('https://api.ipify.org').content.decode('utf8')
-user_session = get_session_id()
 st.set_page_config(layout="centered")
 container_w = 700
 subtitle_ext = "vtt"
@@ -114,7 +108,7 @@ def main():
                 placeholder.success("처리 완료")
 
             except Exception as e:
-                placeholder.warning(f"파일 처리 중 오류가 발생하였습니다.\n{e.with_traceback(sys.exc_info()[2])}")
+                placeholder.warning(f"파일 처리 중 오류가 발생하였습니다.\n{e}")
                 logging.exception(str(e), exc_info=True)
 
             finally:
