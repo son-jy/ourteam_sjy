@@ -1,95 +1,127 @@
-import streamlit as st
-from ultralytics import YOLO
-import tempfile
-import cv2
-from moviepy.editor import VideoFileClip
 import os
+import sys
+import logging
+import streamlit as st
+import streamlit.components.v1 as components
 
-# 페이지 레이아웃 설정
-st.set_page_config(layout="wide")
+from streamlit.runtime.scriptrunner.script_run_context import get_script_run_ctx
 
-# 제목
-st.title("통행 약자 인도 보행 안전 어시스턴트 서비스 및 재인코딩 앱")
+from app.utils import dir_func
+from app.ffmpeg_func import video_preprocessing, combine_video_audio
+from app.subtitle_func import json2sub
+from app.audio_func import json2audio
 
-# 모델 파일 업로드
-model_file = st.file_uploader("모델 파일을 업로드하세요", type=["pt"])
-if model_file:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pt") as temp_model_file:
-        temp_model_file.write(model_file.read())
-        model_path = temp_model_file.name
-    model = YOLO(model_path)
-    st.success("모델이 성공적으로 로드되었습니다.")
+from requests import get
 
-# 비디오 파일 업로드
-uploaded_file = st.file_uploader("비디오 파일을 업로드하세요", type=["mp4", "mov", "avi"])
+import shlex
+from subprocess import check_call, PIPE
+import json
+from pathlib import Path
 
-# 원본 영상 표시
-if uploaded_file is not None:
-    st.header("원본 영상")
-    st.video(uploaded_file)
+def get_session_id() -> str:
+    ctx = get_script_run_ctx()
+    if ctx is None:
+        raise Exception("Failed to get the thread context")
+    return ctx.session_id
 
-# 사물 검출 실행 버튼
-if st.button("사물 검출 실행") and uploaded_file and model_file:
-    # 임시 파일 경로 생성
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_output:
-        output_path = temp_output.name
 
-    # 원본 비디오 파일을 임시 파일로 저장
-    with tempfile.NamedTemporaryFile(delete=False) as temp_input:
-        temp_input.write(uploaded_file.read())
-        temp_input_path = temp_input.name
+TARGET_FPS = 15
+EXTERNAL_IP = get('https://api.ipify.org').content.decode('utf8')
+user_session = get_session_id()
+st.set_page_config(layout="centered")
+container_w = 700
+subtitle_ext = "vtt"
 
-    # 비디오 처리 시작
-    cap = cv2.VideoCapture(temp_input_path)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+# PATH SETTINGS
+upload_path = f"app/uploaded/{user_session}/"
+dst_path = f"app/result/{user_session}/"
+tmp_path = f"app/tmp/{user_session}/"
+wav_path = f"app/audio/{user_session}/"
+tensorrtmodel_file = f"yolov8n_custom_int8.trt"
+#tensorrtmodel_file = f"yolov8n_custom_fp16.trt"
+#tensorrtmodel_file = f"yolov8n_custom_fp32.trt"
 
-    # 프레임별로 사물 검출 수행
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+PRJ_ROOT_PATH = Path(__file__).parent.parent.absolute()
+MODEL_DIR = os.path.join(PRJ_ROOT_PATH, "Model")
+TENSORRT_DIR = os.path.join(MODEL_DIR, "onnx_tensorrt")
 
-        # YOLO 모델로 예측 수행
-        results = model(frame)
-        detections = results[0].boxes if len(results) > 0 else []
+def main():
+    st.title("보행 시 장애물 안내 서비스")
+    st.write(f"Session ID : {user_session}")
 
-        # 검출된 객체에 대해 바운딩 박스 그리기
-        for box in detections:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            confidence = box.conf[0]
-            class_id = int(box.cls[0])
-            class_name = model.names[class_id]
-            label = f"{class_name} {confidence:.2f}"
+    placeholder = st.empty()
+    upload_place = st.empty()
+    uploaded_file = upload_place.file_uploader("동영상을 선택하세요", type=["mp4"])
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    if uploaded_file:
+        # Save Uploaded File
+        dir_func(upload_path, rmtree=True, mkdir=True)
+        fn = uploaded_file.name.replace(" ", "_")
+        save_filepath = os.path.join(upload_path, fn)
+        with open(save_filepath, 'wb') as f:
+            f.write(uploaded_file.getbuffer())
+            placeholder.success(f"파일이 서버에 저장되었습니다.")
+            upload_place.empty()
+        dir_func(tmp_path, rmtree=True, mkdir=True)
+        preprocessed_file = os.path.join(tmp_path, "preprocessed.mp4")
+        result_av_file = os.path.join(dst_path, "result.mp4")
 
-        out.write(frame)
+        col_slide, col_button = st.columns([2, 1])
+        slide_value = col_slide.slider("Confidence Lv Threshold", min_value=0.1, max_value=1.0, value=0.25, step=0.05)
+        button_value = col_button.button("Start Process")
 
-    cap.release()
-    out.release()
+        if button_value:
+            col_slide.empty()
 
-    # moviepy를 사용해 재인코딩 수행
-    st.header("재인코딩된 결과 영상")
-    reencoded_path = output_path.replace(".mp4", "_reencoded.mp4")
-    clip = VideoFileClip(output_path)
-    clip.write_videofile(reencoded_path, codec="libx264", audio_codec="aac")
+            try:
+                with st.spinner("동영상 전처리 중..."):
+                    video_preprocessing(save_filepath, preprocessed_file, resize_h=640, tgt_framerate=TARGET_FPS)
+                placeholder.success("동영상 전처리 완료")
+                with st.spinner("객체 탐지 중..."):
+                    if 1:  # Pytorch
+                        from Model.detector import detect
+                        img_dir = os.path.join(tmp_path, "img_dir")
+                        dir_func(img_dir, rmtree=True, mkdir=True)
+                        frame_json = detect(preprocessed_file, user_session, conf_thres=slide_value)
+                    else:  # TensorRT
+                        img_dir = os.path.join(tmp_path, "img_dir")
+                        dir_func(img_dir, rmtree=True, mkdir=True)
+                        tensorrt_file_path = os.path.join(TENSORRT_DIR, 'trtinference.py')
+                        preprocessing_file_path = os.path.join(tmp_path, 'preprocessed.mp4')
+                        tensorrt_model_file_path = os.path.join(TENSORRT_DIR, tensorrtmodel_file)
+                        cmd = f"python {tensorrt_file_path} -v {preprocessing_file_path} -e {tensorrt_model_file_path} -s {user_session} -c {slide_value}"
+                        check_call(shlex.split(cmd), universal_newlines=True)
+                        JSON_FILE = os.path.join(tmp_path, 'objdetection.json')
+                        with open(JSON_FILE, "rb") as json_file:
+                            frame_json_dict = json.load(json_file)
+                            frame_json = json.dumps(frame_json_dict)
+                        
+                placeholder.success("객체 탐지 완료")
+                json2sub(session_id=user_session, json_str=frame_json, fps=TARGET_FPS, save=True)
+                json2audio(dst_path=wav_path, json_str=frame_json, fps=TARGET_FPS, save=True)
+                audio_file = os.path.join(wav_path, "synthesized_audio.wav")
+                dir_func(dst_path, rmtree=False, mkdir=True)
+                with st.spinner("객체 탐지 결과 종합 중..."):
+                    combine_video_audio(img_dir, audio_file, result_av_file, fps=TARGET_FPS)
+                components.html(f"""
+                  <div class="container">
+                    <video controls preload="auto" width="{container_w}" autoplay crossorigin="anonymous">
+                      <source src="http://{EXTERNAL_IP}:30002/{user_session}/video" type="video/mp4"/>
+                      <track src="http://{EXTERNAL_IP}:30002/{user_session}/subtitle" srclang="ko" type="text/{subtitle_ext}" default/>
+                  </video>
+                  </div>
+                """, width=container_w, height=int(container_w / 16 * 9))
+                placeholder.success("처리 완료")
 
-    # 재인코딩된 비디오 다운로드 버튼 제공
-    with open(reencoded_path, "rb") as file:
-        st.download_button(
-            label="재인코딩된 결과 영상 다운로드",
-            data=file,
-            file_name="reencoded_video.mp4",
-            mime="video/mp4"
-        )
+            except Exception as e:
+                placeholder.warning(f"파일 처리 중 오류가 발생하였습니다.\n{e.with_traceback(sys.exc_info()[2])}")
+                logging.exception(str(e), exc_info=True)
 
-# 결과 영상 재생을 위해 업로드
-uploaded_result = st.file_uploader("결과 영상을 업로드하세요", type=["mp4"])
-if uploaded_result is not None:
-    st.header("사물 검출 결과 영상")
-    st.video(uploaded_result)
+            finally:
+                dir_func(upload_path, rmtree=True, mkdir=False)
+                dir_func(tmp_path, rmtree=True, mkdir=False)
+                dir_func(wav_path, rmtree=True, mkdir=False)
+
+
+dir_func(dst_path, rmtree=True, mkdir=True)
+main()
